@@ -285,7 +285,7 @@ def query_openrouter_sync(messages: list, model: str = AI_MODEL) -> str:
     data = {
         "model": model,
         "messages": messages,
-        "max_tokens": 8000
+        "max_tokens": 15000
     }
     try:
         response = requests.post(url, headers=headers, json=data, timeout=60)
