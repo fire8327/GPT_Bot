@@ -101,10 +101,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Я помогу с учёбой, работой или просто поболтаю.
 
-Выбери режим и пиши свой запрос — всё готово к копированию в Word!
-
-💡 Используется GPT-4o mini.
-    """
+Выбери режим и пиши свой запрос — всё готово!"""
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,7 +251,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     thinking_msg = await update.message.reply_text("💭 Думаю...")
     
     system_prompt = get_system_prompt(current_mode)
-    history = db.get_conversation_history(user_id, current_dialog, limit=6)
+    history = db.get_conversation_history(user_id, current_dialog, limit=3)
     
     messages = [{"role": "system", "content": system_prompt}]
     for role, content, _ in history:
@@ -288,7 +285,7 @@ def query_openrouter_sync(messages: list, model: str = AI_MODEL) -> str:
     data = {
         "model": model,
         "messages": messages,
-        "max_tokens": 4000
+        "max_tokens": 8000
     }
     try:
         response = requests.post(url, headers=headers, json=data, timeout=60)
