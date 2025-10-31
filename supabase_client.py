@@ -11,7 +11,12 @@ class SupabaseClient:
         if not self.url or not self.key:
             raise ValueError("Supabase URL and KEY must be set in environment variables")
         
-        self.client: Client = create_client(self.url, self.key)
+        try:
+            self.client: Client = create_client(self.url, self.key)
+            logger.info("Supabase client initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing Supabase client: {e}")
+            raise
     
     def save_website_credentials(self, telegram_id: int, login: str, password: str, subscription_type: str = 'free'):
         """Сохраняет логин и пароль в Supabase"""
@@ -24,7 +29,29 @@ class SupabaseClient:
                 'subscription_type': subscription_type
             }
             
-            result = self.client.table('website_users').upsert(data).execute()
+            # Проверяем существующую запись
+            existing = self.client.table('website_users')\
+                .select('id')\
+                .eq('telegram_id', telegram_id)\
+                .execute()
+            
+            if existing.data:
+                # Обновляем существующую запись
+                result = self.client.table('website_users')\
+                    .update({
+                        'login': login,
+                        'password': password,
+                        'subscription_type': subscription_type,
+                        'is_active': True
+                    })\
+                    .eq('telegram_id', telegram_id)\
+                    .execute()
+            else:
+                # Создаем новую запись
+                result = self.client.table('website_users')\
+                    .insert(data)\
+                    .execute()
+            
             return result.data[0] if result.data else None
             
         except Exception as e:
