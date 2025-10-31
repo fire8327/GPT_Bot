@@ -1,14 +1,18 @@
 import os
 import asyncio
 import requests
+import secrets
+import string
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from dotenv import load_dotenv
 from db import Database
+from supabase_client import supabase
 
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 OPEN_ROUTER_API_KEY = os.getenv('OPEN_ROUTER_API_KEY')
+WEBSITE_URL = os.getenv('WEBSITE_URL', 'https://your-website.com')
 
 db = Database()
 AI_MODEL = "openai/gpt-4o-mini"
@@ -16,16 +20,14 @@ MAX_DIALOGS = 5
 
 def get_main_keyboard():
     keyboard = [
-        [KeyboardButton("🎒 Школьный режим"), KeyboardButton("🎓 Универ/Колледж")],
-        [KeyboardButton("💼 Рабочий режим"), KeyboardButton("💬 Свободный диалог")],
-        [KeyboardButton("📚 Конспект"), KeyboardButton("🤔 Объяснить понятно")],
-        [KeyboardButton("🔄 Новый диалог"), KeyboardButton("👀 Показать все диалоги")],
-        [KeyboardButton("❓ Помощь")]
+        [KeyboardButton("💬 Продолжить диалог")],
+        [KeyboardButton("🌐 Доступ к сайту"), KeyboardButton("🔄 Новый диалог")],
+        [KeyboardButton("👀 Мои диалоги"), KeyboardButton("❓ Помощь")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
-def get_system_prompt(mode: str) -> str:
-    base_prompt = """
+def get_system_prompt() -> str:
+    return """
 ВСЕГДА соблюдай эти правила форматирования:
 1. НЕ используй Markdown разметку (**жирный**, *курсив*, ### заголовки)
 2. НЕ используй эмодзи в основном тексте ответа
@@ -36,92 +38,50 @@ def get_system_prompt(mode: str) -> str:
 7. Если нужны заголовки - пиши их с новой строки без специальных символов
 
 Отвечай на русском языке.
+
+Ты - умный и полезный помощник. Отвечай на вопросы, помогай с учебой, работой, творчеством и любыми другими задачами. Будь дружелюбным и профессиональным.
 """
+
+def generate_credentials():
+    """Генерирует логин и пароль для сайта"""
+    login_suffix = ''.join(secrets.choice(string.digits) for _ in range(6))
+    login = f"user_{login_suffix}"
     
-    prompts = {
-        "school": base_prompt + """
-Ты - добрый и терпеливый репетитор для школьника.
-Объясняй всё просто, пошагово, с примерами из жизни.
-
-НЕ ИСПОЛЬЗУЙ и НЕ УПОМИНАЙ:
-- тригонометрию, синусы/косинусы
-- логарифмы, экспоненты
-- дифференцирование, интегралы, производные
-
-Если тема требует этих понятий - скажи, что это пока не входит в школьную программу.
-Давай полные решения уравнений, а не только ответы.
-""",
-        
-        "university": base_prompt + """
-Ты - эксперт, помогающий студенту университета или колледжа.
-Давай глубокие, структурированные объяснения.
-Можешь использовать профессиональную терминологию, но поясняй её.
-Помогай с анализом, академическим письмом, подготовкой к экзаменам.
-Форматируй ответы как готовые академические тексты.
-""",
-        
-        "work": base_prompt + """
-Ты - профессиональный деловой ассистент.
-Будь кратким, конкретным и практичным.
-Помогай с письмами, анализом, планированием, презентациями.
-Избегай жаргона, если он не уместен.
-Форматируй ответы как готовые бизнес-документы.
-""",
-        
-        "free": base_prompt + """
-Ты - умный и дружелюбный собеседник.
-Общайся естественно, отвечай на любые вопросы, помогай с творчеством.
-""",
-        
-        "summary": base_prompt + """
-Ты - мастер создания конспектов.
-Преврати присланный текст в структурированный конспект:
-- ключевые тезисы
-- основные выводы  
-- важные детали
-Сделай информацию легко усваиваемой.
-""",
-        
-        "explain": base_prompt + """
-Ты - эксперт по объяснению сложного простыми словами.
-Используй аналогии, примеры, пошаговые объяснения.
-Проверяй, понятно ли объяснение.
-"""
-    }
-    return prompts.get(mode, base_prompt)
+    alphabet = string.ascii_letters + string.digits
+    password = ''.join(secrets.choice(alphabet) for _ in range(8))
+    
+    return login, password
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_id = user.id
     db.save_user(user_id, user.username, user.first_name)
-    db.set_user_session(user_id, "free", 1)
+    db.set_user_session(user_id, "general", 1)
     
     welcome_text = f"""
 🤖 Привет, {user.first_name}!
 
-Я помогу с учёбой, работой или просто поболтаю.
+Я твой умный помощник для общения, учебы и работы.
 
-Выбери режим и пиши свой запрос — всё готово!"""
+Просто напиши свой вопрос — и я помогу!
+
+Что умею:
+• Отвечать на любые вопросы
+• Помогать с учебой и работой
+• Создавать конспекты и объяснять сложное
+• И многое другое!"""
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
-📋 **Как пользоваться:**
+📋 Как пользоваться:
 
-1. Выбери режим кнопкой:
-   - 🎒 Школьный — без тригонометрии и логарифмов
-   - 🎓 Универ/Колледж — для студентов
-   - 💼 Работа — деловые задачи
-   - 💬 Свободный — просто общаться
-   - 📚 Конспект — сократить текст
-   - 🤔 Объяснить — разжевать сложное
+💬 Продолжить диалог - вернуться к текущему диалогу
+🌐 Доступ к сайту - получить логин/пароль для сайта
+🔄 Новый диалог - начать новую тему (до 5 параллельных диалогов)
+👀 Мои диалоги - просмотреть и управлять диалогами
 
-2. Напиши свой вопрос или текст.
-
-3. Хочешь начать заново? Жми «🔄 Новый диалог».
-
-4. У тебя до **5 параллельных диалогов**. 
-   Жми «👀 Показать все диалоги», чтобы управлять ими.
+Просто напиши свой вопрос в любое время!
 
 Команды:
 /start — начать заново
@@ -129,7 +89,43 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     await update.message.reply_text(help_text, reply_markup=get_main_keyboard())
 
-# Обработчик inline-кнопок для удаления диалогов
+async def website_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Выдает доступ к сайту"""
+    user = update.message.from_user
+    user_id = user.id
+    
+    # Проверяем существующие credentials в Supabase
+    existing_credentials = supabase.get_website_credentials(user_id)
+    
+    if existing_credentials:
+        login = existing_credentials['login']
+        password = existing_credentials['password']
+        subscription_type = existing_credentials.get('subscription_type', 'free')
+        is_active = existing_credentials.get('is_active', True)
+    else:
+        # Генерируем новые credentials
+        login, password = generate_credentials()
+        supabase.save_website_credentials(user_id, login, password, 'free')
+        subscription_type = 'free'
+        is_active = True
+    
+    # Форматируем сообщение с code блоками для легкого копирования
+    access_text = f"""
+🌐 Доступ к сайту
+
+📍 Сайт: {WEBSITE_URL}
+Логин: {login}
+Пароль: {password}
+
+
+📊 Статус: {'✅ Активен' if is_active else '❌ Неактивен'}
+🎫 Тариф: {subscription_type}
+
+⚠️ Не передавай логин и пароль другим людям.
+"""
+
+    await update.message.reply_text(access_text, reply_markup=get_main_keyboard())
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -141,7 +137,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dialog_id = int(data.split("_")[-1])
         db.delete_dialog(user_id, dialog_id)
         await query.edit_message_text(f"🗑 Диалог {dialog_id} удалён.")
-        # Вернём пользователя к просмотру диалогов через 2 сек
         await asyncio.sleep(2)
         await show_all_dialogs(update, context, from_callback=True)
     elif data == "back_to_dialogs":
@@ -159,13 +154,12 @@ async def show_all_dialogs(update: Update, context: ContextTypes.DEFAULT_TYPE, f
     for did in range(1, MAX_DIALOGS + 1):
         desc = summaries[did] or "Пусто"
         text += f"{did}. {desc}\n"
-        if summaries[did]:  # только если диалог не пустой
+        if summaries[did]:
             buttons.append(InlineKeyboardButton(f"Удалить {did}", callback_data=f"delete_dialog_{did}"))
     
     if active_count >= MAX_DIALOGS:
         text += "\n⚠️ Достигнут лимит диалогов (5). Удалите ненужные, чтобы создать новые."
     
-    # Добавим кнопку "Назад"
     if buttons:
         buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_dialogs"))
         reply_markup = InlineKeyboardMarkup([buttons[i:i+3] for i in range(0, len(buttons), 3)])
@@ -192,65 +186,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if active_count >= MAX_DIALOGS:
             await update.message.reply_text(
                 "⚠️ У вас уже 5 активных диалогов. "
-                "Сначала удалите ненужные через «👀 Показать все диалоги».",
+                "Сначала удалите ненужные через «👀 Мои диалоги».",
                 reply_markup=get_main_keyboard()
             )
             return
         
-        # Найдём первый свободный dialog_id
         new_dialog_id = next((i for i in range(1, MAX_DIALOGS + 1) if summaries[i] is None), 1)
-        db.set_user_session(user_id, current_mode, new_dialog_id)
+        db.set_user_session(user_id, "general", new_dialog_id)
         db.clear_conversation_history(user_id, new_dialog_id)
         await update.message.reply_text(
-            f"🔄 Начат новый диалог №{new_dialog_id}! Режим: {current_mode}. Пишите ваш запрос.",
+            f"🔄 Начат новый диалог №{new_dialog_id}! Пишите ваш запрос.",
             reply_markup=get_main_keyboard()
         )
         return
 
-    elif user_message == "👀 Показать все диалоги":
+    elif user_message == "👀 Мои диалоги":
         await show_all_dialogs(update, context)
+        return
+
+    elif user_message == "🌐 Доступ к сайту":
+        await website_access_command(update, context)
         return
 
     elif user_message == "❓ Помощь":
         await help_command(update, context)
         return
 
-    # Обработка выбора режима
-    mode_map = {
-        "🎒 Школьный режим": "school",
-        "🎓 Универ/Колледж": "university",
-        "💼 Рабочий режим": "work",
-        "💬 Свободный диалог": "free",
-        "📚 Конспект": "summary",
-        "🤔 Объяснить понятно": "explain"
-    }
-    
-    if user_message in mode_map:
+    elif user_message == "💬 Продолжить диалог":
         current_mode, current_dialog = db.get_user_session(user_id)
-        new_mode = mode_map[user_message]
-        db.set_user_session(user_id, new_mode, current_dialog)
-        mode_names = {
-            "school": "🎒 Школьный",
-            "university": "🎓 Универ/Колледж",
-            "work": "💼 Рабочий",
-            "free": "💬 Свободный",
-            "summary": "📚 Конспект",
-            "explain": "🤔 Объяснить"
-        }
         await update.message.reply_text(
-            f"✅ Режим изменён на {mode_names[new_mode]}! Пишите ваш запрос.",
+            f"💬 Продолжаем диалог №{current_dialog}. Пишите ваш запрос:",
             reply_markup=get_main_keyboard()
         )
         return
 
     # Обычное сообщение — отправка в AI
     current_mode, current_dialog = db.get_user_session(user_id)
-    db.save_conversation(user_id, "user", user_message, current_mode, current_dialog)
+    db.save_conversation(user_id, "user", user_message, "general", current_dialog)
     
     await update.message.chat.send_action(action="typing")
     thinking_msg = await update.message.reply_text("💭 Думаю...")
     
-    system_prompt = get_system_prompt(current_mode)
+    system_prompt = get_system_prompt()
     history = db.get_conversation_history(user_id, current_dialog, limit=3)
     
     messages = [{"role": "system", "content": system_prompt}]
@@ -263,9 +240,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             None, lambda: query_openrouter_sync(messages, AI_MODEL)
         )
         await thinking_msg.delete()
-        db.save_conversation(user_id, "assistant", ai_response, current_mode, current_dialog)
+        db.save_conversation(user_id, "assistant", ai_response, "general", current_dialog)
         
-        # Отправка длинных ответов частями
         if len(ai_response) > 4096:
             for i in range(0, len(ai_response), 4096):
                 await update.message.reply_text(ai_response[i:i+4096], reply_markup=get_main_keyboard())
