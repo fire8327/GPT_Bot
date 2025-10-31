@@ -7,7 +7,7 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboard
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from dotenv import load_dotenv
 from db import Database
-from supabase_client import supabase
+from supabase_http import supabase
 
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
