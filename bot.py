@@ -12,7 +12,7 @@ from supabase_http import supabase
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 OPEN_ROUTER_API_KEY = os.getenv('OPEN_ROUTER_API_KEY')
-WEBSITE_URL = os.getenv('WEBSITE_URL', 'https://your-website.com')
+WEBSITE_URL = os.getenv('WEBSITE_URL', 'https://ai83274.vercel.app/')
 
 db = Database()
 AI_MODEL = "openai/gpt-4o-mini"
